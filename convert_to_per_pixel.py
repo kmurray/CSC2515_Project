@@ -28,8 +28,8 @@ def parse_args():
                         default="lane",
                         help="Type of classification. Default: %(default)s")
 
-    parser.add_argument("-o", "--out_dir",
-                        help="Output directory")
+    parser.add_argument("-o", "--out_file",
+                        help="Output file")
 
     parser.add_argument("-n", "--num_images",
                         type=int,
@@ -84,7 +84,7 @@ def convert_training_images(args, train_gt_images):
                 field_names.append(pixel_label(x_offset, y_offset, channel))
 
     print field_names
-    with open(path.join(args.out_dir, "train_data.csv"), 'w') as f:
+    with open(path.join(args.out_file), 'w') as f:
         csv_writer = csv.DictWriter(f, fieldnames=field_names)
         csv_writer.writeheader()
 
@@ -123,106 +123,9 @@ def convert_training_images(args, train_gt_images):
             if args.num_images and img_cnt + 1 >= args.num_images:
                 break
 
-def convert_gt_training_images(args, gt_images):
-    with open(path.join(args.out_dir, "label_data.csv"), 'w') as f:
-        #print >>f, "Label"
-        for img_cnt, img_filepath in enumerate(gt_images):
-            print "Converting", img_filepath
-            img = Image.open(img_filepath)
-            w, h = img.size
-            pixels = img.load()
-
-            for y in xrange(h):
-                for x in xrange(w):
-                    if pixels[x,y][2] == 255:
-                        print >>f, "Lane"
-                    else:
-                        print >>f, "NotLane"
-            if args.num_images and img_cnt + 1 >= args.num_images:
-                break
-
 
 def pixel_label(x_offset, y_offset, channel):
     return "%dX_%dY_%s" % (x_offset, y_offset, channel)
-
-
-def write_fann_training_pair(args, f, num_super_pixels, img_filename, super_pixel_dict):
-    #Determine values of super pixels
-
-    #Training image
-    train_img_filepath = path.join(args.data_dir, 'training', 'image_2', img_filename)
-    train_super_pixel_values = calc_super_pixel_values(args, train_img_filepath, super_pixel_dict)
-
-    #Ground trueth image
-    img_base, img_ext = path.splitext(img_filename)
-    img_base_split = img_base.split('_')
-    gt_filename = '_'.join([img_base_split[0], 'road', img_base_split[1]]) + img_ext
-
-    gt_img_filepath = path.join(args.data_dir, 'training', 'gt_image_2', gt_filename)
-    gt_super_pixel_values = calc_super_pixel_values(args, gt_img_filepath, super_pixel_dict)
-
-    #Write out all inputs
-    for sp_idx, values in train_super_pixel_values.iteritems():
-        print >>f, ' '.join([str(x) for x in values]),
-    print >>f
-
-    #Write out all outputs
-    for sp_idx, values in gt_super_pixel_values.iteritems():
-        #Third channel contains ground truth
-        if values[2] >= args.gt_threshold:
-            print >>f, "1.0",
-        else:
-            print >>f, "0.0",
-    print >>f
-
-def calc_super_pixel_values(args, img_filepath, super_pixel_dict):
-    super_pixel_values = {}
-
-    #Open the image
-    img = Image.open(img_filepath)
-    print img.format, img.size, img.mode
-
-    w, h = img.size
-
-    pixels = img.load()
-
-    for sp_idx, pixel_idxs in super_pixel_dict.iteritems():
-        sp_value = [0., 0., 0.]
-        for pixel_idx in pixel_idxs:
-            x = pixel_idx % w
-            y = pixel_idx / w
-            pixel = pixels[x,y]
-            sp_value[0] += pixel[0]
-            sp_value[1] += pixel[1]
-            sp_value[2] += pixel[2]
-
-        #Average over all pixels
-        sp_value[0] /= len(pixel_idxs)
-        sp_value[1] /= len(pixel_idxs)
-        sp_value[2] /= len(pixel_idxs)
-
-        #Normalize on [0.0, 1.0] 
-        sp_value[0] /= 255.0
-        sp_value[1] /= 255.0
-        sp_value[2] /= 255.0
-
-        super_pixel_values[sp_idx] = sp_value
-
-    return super_pixel_values
-        
-
-
-def load_dat(dat_file):
-    super_pixel_dict = {}
-    with open(dat_file) as f:
-        for pixel_idx, line in enumerate(f, 0):
-            super_pixel_idx = int(line)
-            if super_pixel_idx not in super_pixel_dict:
-                super_pixel_dict[super_pixel_idx] = []
-            super_pixel_dict[super_pixel_idx].append(pixel_idx)
-
-    return super_pixel_dict
-
 
 if __name__ == "__main__":
     main()
