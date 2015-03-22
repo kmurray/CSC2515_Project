@@ -13,10 +13,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 import Image
 
 from sklearn import preprocessing, decomposition
-from sklearn.cross_validation import train_test_split
+from sklearn.cross_validation import train_test_split, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.grid_search import GridSearchCV, RandomizedSearchCV, ParameterSampler
-from sklearn import svm, neighbors, tree
+from sklearn import svm, neighbors, tree, ensemble
 from sklearn import metrics
 
 def parse_args():
@@ -87,8 +87,9 @@ def main():
 
     print "Training Classifier"
     train_start = time()
-    classifier = neighbors.KNeighborsClassifier(n_neighbors=3)
-    #classifier = tree.DecisionTreeClassifier(max_depth=3)
+    #classifier = neighbors.KNeighborsClassifier(n_neighbors=3)
+    #classifier = tree.DecisionTreeClassifier(max_depth=10)
+    classifier = ensemble.RandomForestClassifier(n_estimators=10)
 
     #50 components covers 95% variation on um
     pca = decomposition.PCA(n_components=50) 
@@ -122,7 +123,9 @@ def main():
 
     #Difference of test and actual
     err_frac = np.sum(test_targets - test_targets_pred) / np.prod(test_targets.shape)
-    print "Error Rate: %f" % err_frac
+    print "Error Rate (pixel diff): %f" % err_frac
+
+    #print "Error Rate (cross-val): %f" % cross_val_score(estimator, X, y)
 
     plot_classification(args, classifier, test_data, test_targets, test_targets_pred)
 
