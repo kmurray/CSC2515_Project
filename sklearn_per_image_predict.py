@@ -12,8 +12,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
 import Image
 
-from sklearn import preprocessing
+from sklearn import preprocessing, decomposition
 from sklearn.cross_validation import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.grid_search import GridSearchCV, RandomizedSearchCV, ParameterSampler
 from sklearn import svm, neighbors, tree
 from sklearn import metrics
 
@@ -31,7 +33,7 @@ def parse_args():
 
     parser.add_argument("-c", "--classification_type",
                         choices=["lane", "road"],
-                        default="lane",
+                        default="road",
                         help="Type of classification. Default: %(default)s")
 
     parser.add_argument("-n", "--num_images",
@@ -59,6 +61,9 @@ def parse_args():
 
     assert args.channels == 3
 
+    if args.road_type != "all":
+        args.road_type = args.road_type + "_"
+
     return args
 
 def main():
@@ -76,25 +81,47 @@ def main():
     print "Splitting data into train, test, validation"
     train_validation_data, test_data, train_validation_targets, test_targets = train_test_split(X, y, test_size=0.3, random_state=0)
 
-    train_data, validation_data, train_targets, validation_targets = train_test_split(train_validation_data, train_validation_targets, test_size=10./70., random_state=0)
-    print "  Train %d, Validate %d, Test %d" % (train_data.shape[0], validation_data.shape[0], test_data.shape[0])
+    #train_data, validation_data, train_targets, validation_targets = train_test_split(train_validation_data, train_validation_targets, test_size=10./70., random_state=0)
+    train_data, train_targets = train_validation_data, train_validation_targets
+    print "  Train %d, Test %d" % (train_data.shape[0], test_data.shape[0])
 
     print "Training Classifier"
     train_start = time()
     classifier = neighbors.KNeighborsClassifier(n_neighbors=3)
-    #classifier = tree.DecisionTreeClassifier()
+    #classifier = tree.DecisionTreeClassifier(max_depth=3)
 
-    classifier.fit(train_data, train_targets)
+    #50 components covers 95% variation on um
+    pca = decomposition.PCA(n_components=50) 
+
+    n_components = [20, 40, 1000]
+
+    pipe = Pipeline(steps=[
+            ('dimreduction', pca), #First PCA
+            ('classifier', classifier) #Then classify on the reduced dimension problem
+        ])
+
+    scorer = metrics.make_scorer(abs_pixel_diff_scorer, greater_is_better=False)
+
+    #estimator = GridSearchCV(pipe,  dict(dimreduction__n_components=n_components))
+    #estimator = GridSearchCV(pipe, dict(classifier__n_heighbors=[1, 2, 3]), scoring=scorer, cv=2)
+    #estimator = RandomizedSearchCV(pipe,  {'classifier__n_heighbors': [1, 2]})
+    estimator = pipe
+    estimator.fit(train_data, train_targets)
+
+    print "  PCA Explained Variance: ", np.sum(pca.explained_variance_ratio_)
+    #print "  Picked %d components" % (estimator.best_estimator_.named_steps['dimreduction'].n_components)
+
+
     print "  Training took %fs" % (time() - train_start)
 
     #Evaluation
     print "Evaluating Classifier"
     eval_start = time()
-    test_targets_pred = classifier.predict(test_data)
+    test_targets_pred = estimator.predict(test_data)
     print "  Evaluation took %fs" % (time() - eval_start)
 
     #Difference of test and actual
-    err_frac = np.sum(np.abs(test_targets - test_targets_pred)) / np.prod(test_targets.shape)
+    err_frac = np.sum(test_targets - test_targets_pred) / np.prod(test_targets.shape)
     print "Error Rate: %f" % err_frac
 
     plot_classification(args, classifier, test_data, test_targets, test_targets_pred)
@@ -108,8 +135,11 @@ def load_data(args):
             train_images.append(path.join(train_dir,img))
     train_images.sort()
 
-    if not args.num_images:
+    if args.num_images == None:
         args.num_images = len(train_images)
+    else:
+        args.num_images = min(len(train_images), args.num_images)
+    print "Processing %d input images" % (args.num_images)
 
     gt_dir = path.join(args.data_dir, "training", "gt_image_2")
     gt_images = []
@@ -118,6 +148,14 @@ def load_data(args):
             if args.classification_type in img:
                 gt_images.append(path.join(gt_dir, img))
     gt_images.sort()
+
+    #Verify names match
+    assert len(train_images) == len(gt_images)
+    for i in xrange(len(train_images)):
+        train_img = train_images[i]
+        gt_img = gt_images[i]
+        gt_trimmed = gt_img.replace(args.classification_type + "_", "")
+        assert path.basename(gt_trimmed) == path.basename(train_img)
 
     #Load the data
     # For X (input data) we expect args.num_images images of dimension args.w*args.h with args.channels colour channels.
@@ -158,6 +196,7 @@ def load_data(args):
 
 def plot_classification(args, classifier, test_data, test_targets, predicted_targets):
     if args.show != None:
+        #Reshape images into image matricies for plotting
         img_flat = test_data[args.show,:]
         img = img_flat.reshape([args.height,args.width,3])
 
@@ -167,25 +206,32 @@ def plot_classification(args, classifier, test_data, test_targets, predicted_tar
         pred_flat = predicted_targets[args.show,:]
         pred = pred_flat.reshape([args.height,args.width])
 
-        fig, axarr = plt.subplots(2, 2)
+        #Grid of subplots
+        fig, axarr = plt.subplots(4, 1)
 
-        cmap = plt.get_cmap("gnuplot2")
+        #Use a divergent colour map with white as zero
+        cmap = plt.get_cmap("bwr")
 
-        axarr[0][0].set_title("Test Image")
-        axarr[0][0].imshow(img)
+        axarr[0].set_title("Test Image")
+        axarr[0].imshow(img)
 
-        axarr[1][0].set_title("GroundTruth - Prediction Error")
-        axarr[1][0].imshow(np.abs(gt - pred), cmap=cmap)
+        axarr[1].set_title("GroundTruth")
+        axarr[1].imshow(gt, cmap=cmap)
 
-        axarr[0][1].set_title("GroundTruth")
-        axarr[0][1].imshow(gt, cmap=cmap)
+        axarr[2].set_title("Prediction")
+        axarr[2].imshow(pred, cmap=cmap)
 
-        axarr[1][1].set_title("Prediction")
-        axarr[1][1].imshow(pred, cmap=cmap)
+        axarr[3].set_title("GroundTruth - Prediction Error")
+        axarr[3].imshow(gt - pred, cmap=cmap)
 
+        #fig.colorbar(pred_err_show, orientation="horizontal")
         plt.tight_layout()
         plt.show()
 
+def abs_pixel_diff_scorer(estimator, X, y):
+    y_pred = estimator.pred(X)
+
+    err_frac = np.sum(np.abs(y - y_pred)) / np.prod(y.shape)
 
 if __name__ == "__main__":
     main()
