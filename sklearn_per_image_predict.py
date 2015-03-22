@@ -87,9 +87,9 @@ def main():
 
     print "Training Classifier"
     train_start = time()
-    #classifier = neighbors.KNeighborsClassifier(n_neighbors=3)
+    classifier = neighbors.KNeighborsClassifier(n_neighbors=3)
     #classifier = tree.DecisionTreeClassifier(max_depth=10)
-    classifier = ensemble.RandomForestClassifier(n_estimators=10)
+    #classifier = ensemble.RandomForestClassifier(n_estimators=10)
 
     #50 components covers 95% variation on um
     pca = decomposition.PCA(n_components=50) 
