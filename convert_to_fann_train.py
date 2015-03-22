@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument('--gt_threshold',
                         type=float,
                         default=0.5,
-                        help="Average superpixel value in ground truth to be considered a road. Default: %s(default)")
+                        help="Average superpixel value in ground truth to be considered a road. Default: %(default)s")
 
     args = parser.parse_args()
 
