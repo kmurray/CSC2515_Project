@@ -6,6 +6,7 @@ import csv
 import numpy as np
 import logging
 import matplotlib.pyplot as plt
+from time import time
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
@@ -50,6 +51,10 @@ def parse_args():
                         default=3,
                         help="Number of colour channels. Default %(default)s")
 
+    parser.add_argument('-s', '--show',
+                        type=int,
+                        help="Show test set image of specified number after running.")
+
     args = parser.parse_args()
 
     assert args.channels == 3
@@ -59,27 +64,34 @@ def parse_args():
 def main():
     args = parse_args()
 
+    load_start = time()
     print "Loading data from: ", args.data_dir
     X, y = load_data(args)
 
     #Save output
     np.save("X.npy", X)
     np.save("y.npy", y)
+    print "  Loading took %fs" % (time() - load_start)
 
     print "Splitting data into train, test, validation"
     train_validation_data, test_data, train_validation_targets, test_targets = train_test_split(X, y, test_size=0.3, random_state=0)
 
     train_data, validation_data, train_targets, validation_targets = train_test_split(train_validation_data, train_validation_targets, test_size=10./70., random_state=0)
-    print "\tTrain %d, Validate %d, Test %d" % (train_data.shape[0], validation_data.shape[0], test_data.shape[0])
+    print "  Train %d, Validate %d, Test %d" % (train_data.shape[0], validation_data.shape[0], test_data.shape[0])
 
     print "Training Classifier"
+    train_start = time()
     classifier = neighbors.KNeighborsClassifier(n_neighbors=3)
+    #classifier = tree.DecisionTreeClassifier()
 
     classifier.fit(train_data, train_targets)
+    print "  Training took %fs" % (time() - train_start)
 
     #Evaluation
     print "Evaluating Classifier"
+    eval_start = time()
     test_targets_pred = classifier.predict(test_data)
+    print "  Evaluation took %fs" % (time() - eval_start)
 
     #Difference of test and actual
     err_frac = np.sum(np.abs(test_targets - test_targets_pred)) / np.prod(test_targets.shape)
@@ -133,9 +145,6 @@ def load_data(args):
         gt_pixels = np.array(gt_image) / 255.0
 
         #Reshape
-        #X[i,0:npixels] = train_pixels[:,:,0].flatten()
-        #X[i,npixels:2*npixels] = train_pixels[:,:,1].flatten()
-        #X[i,2*npixels:] = train_pixels[:,:,2].flatten()
         X[i,:] = train_pixels.reshape([npixels*args.channels])
 
         y[i] = gt_pixels[:,:,2].flatten()
@@ -148,33 +157,34 @@ def load_data(args):
     return X, y
 
 def plot_classification(args, classifier, test_data, test_targets, predicted_targets):
+    if args.show != None:
+        img_flat = test_data[args.show,:]
+        img = img_flat.reshape([args.height,args.width,3])
 
-    img_flat = test_data[0,:]
-    img = img_flat.reshape([args.height,args.width,3])
+        gt_flat = test_targets[args.show,:]
+        gt = gt_flat.reshape([args.height,args.width])
 
-    gt_flat = test_targets[0,:]
-    gt = gt_flat.reshape([args.height,args.width])
+        pred_flat = predicted_targets[args.show,:]
+        pred = pred_flat.reshape([args.height,args.width])
 
-    pred_flat = predicted_targets[0,:]
-    pred = pred_flat.reshape([args.height,args.width])
+        fig, axarr = plt.subplots(2, 2)
 
-    fig, axarr = plt.subplots(2, 2)
+        cmap = plt.get_cmap("gnuplot2")
 
-    axarr[0][0].imshow(img)
-    axarr[0][0].set_title("Test Image")
+        axarr[0][0].set_title("Test Image")
+        axarr[0][0].imshow(img)
 
-    axarr[1][0].set_title("GroundTruth - Prediction Error")
-    axarr[1][0].imshow(np.abs(gt - pred))
+        axarr[1][0].set_title("GroundTruth - Prediction Error")
+        axarr[1][0].imshow(np.abs(gt - pred), cmap=cmap)
 
-    axarr[0][1].set_title("Ground Truth")
-    axarr[0][1].imshow(gt)
+        axarr[0][1].set_title("GroundTruth")
+        axarr[0][1].imshow(gt, cmap=cmap)
 
-    axarr[1][1].set_title("Prediction")
-    axarr[1][1].imshow(pred)
+        axarr[1][1].set_title("Prediction")
+        axarr[1][1].imshow(pred, cmap=cmap)
 
-
-    plt.tight_layout()
-    plt.show()
+        plt.tight_layout()
+        plt.show()
 
 
 if __name__ == "__main__":
