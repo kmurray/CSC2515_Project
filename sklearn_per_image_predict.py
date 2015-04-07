@@ -6,6 +6,7 @@ import csv
 import numpy as np
 import logging
 import matplotlib.pyplot as plt
+from matplotlib.widgets import Button
 from time import time
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -88,11 +89,17 @@ def main():
     print "Training Classifier"
     train_start = time()
     classifier = neighbors.KNeighborsClassifier(n_neighbors=3)
-    #classifier = tree.DecisionTreeClassifier(max_depth=10)
+    #classifier = tree.DecisionTreeClassifier(max_depth=3)
     #classifier = ensemble.RandomForestClassifier(n_estimators=10)
 
     #50 components covers 95% variation on um
-    pca = decomposition.PCA(n_components=50) 
+    #50 components covers 76% variation on all
+    #100 components cover 88% variation on all
+    #500 components cover 100% variation on all
+    #250 components cover 100% variation on all
+    #150 components cover 95% variation on all
+    #200 components cover 99.9% variation on all
+    pca = decomposition.PCA(n_components=200) 
 
     n_components = [20, 40, 1000]
 
@@ -122,12 +129,13 @@ def main():
     print "  Evaluation took %fs" % (time() - eval_start)
 
     #Difference of test and actual
-    err_frac = np.sum(test_targets - test_targets_pred) / np.prod(test_targets.shape)
+    err_frac = np.sum(np.abs(test_targets - test_targets_pred)) / np.prod(test_targets.shape)
     print "Error Rate (pixel diff): %f" % err_frac
 
     #print "Error Rate (cross-val): %f" % cross_val_score(estimator, X, y)
 
     plot_classification(args, classifier, test_data, test_targets, test_targets_pred)
+    #plot_classification_interactive(args, classifier, test_data, test_targets, test_targets_pred)
 
 def load_data(args):
     #Collect image paths
@@ -199,6 +207,7 @@ def load_data(args):
 
 def plot_classification(args, classifier, test_data, test_targets, predicted_targets):
     if args.show != None:
+
         #Reshape images into image matricies for plotting
         img_flat = test_data[args.show,:]
         img = img_flat.reshape([args.height,args.width,3])
@@ -230,6 +239,70 @@ def plot_classification(args, classifier, test_data, test_targets, predicted_tar
         #fig.colorbar(pred_err_show, orientation="horizontal")
         plt.tight_layout()
         plt.show()
+
+def plot_classification_interactive(args, classifier, test_data, test_targets, predicted_targets):
+    callback = DrawErrors(args, test_data, test_targets, predicted_targets)
+
+    #Grid of subplots
+    fig, axarr = plt.subplots(4, 1)
+
+    #Use a divergent colour map with white as zero
+    cmap = plt.get_cmap("bwr")
+
+    bnext = Button(axarr[0], 'Next')
+    bnext.on_clicked(callback.next)
+    bprev = Button(axarr[0], 'Previous')
+    bprev.on_clicked(callback.prev)
+
+    plt.tight_layout()
+    plt.show()
+
+class DrawErrors():
+    def __init__(self, args, test_data, test_targets, predicted_targets):
+        self.idx = 0
+        self.args = args
+        self.test_data = test_data
+        self.test_targets = test_targets
+        self.predicted_targs = predicted_targets
+
+    def draw(self):
+        #Reshape images into image matricies for plotting
+        img_flat = self.test_data[self.idx,:]
+        img = img_flat.reshape([args.height,args.width,3])
+
+        gt_flat = self.test_targets[self.idx,:]
+        gt = gt_flat.reshape([args.height,args.width])
+
+        pred_flat = self.predicted_targets[self.idx,:]
+        pred = pred_flat.reshape([args.height,args.width])
+
+        #Use a divergent colour map with white as zero
+        cmap = plt.get_cmap("bwr")
+
+        self.axarr[0].set_title("Test Image")
+        self.axarr[0].imshow(img)
+
+        self.axarr[1].set_title("GroundTruth")
+        self.axarr[1].imshow(gt, cmap=cmap)
+
+        self.axarr[2].set_title("Prediction")
+        self.axarr[2].imshow(pred, cmap=cmap)
+
+        self.axarr[3].set_title("GroundTruth - Prediction Error")
+        self.axarr[3].imshow(gt - pred, cmap=cmap)
+
+        #fig.colorbar(pred_err_show, orientation="horizontal")
+        plt.tight_layout()
+        plt.draw()
+
+    def next(self, event):
+        self.idx += 1
+        self.draw()
+        
+
+    def prev(self, event):
+        self.idx -= 1
+        self.draw()
 
 def abs_pixel_diff_scorer(estimator, X, y):
     y_pred = estimator.pred(X)
