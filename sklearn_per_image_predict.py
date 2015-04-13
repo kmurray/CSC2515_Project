@@ -54,9 +54,21 @@ def parse_args():
                         default=3,
                         help="Number of colour channels. Default %(default)s")
 
+    parser.add_argument('--show_test_error',
+                        default=False,
+                        action='store_true',
+                        help="Show the test set error")
+
     parser.add_argument('-s', '--show',
                         type=int,
                         help="Show test set image of specified number after running.")
+
+    parser.add_argument('--classifier_type',
+                        choices=['kNN', 'DecisionTree', 'EnsembleForest'],
+                        help="Classifier type.")
+    parser.add_argument('--classifier_params',
+                        default=None,
+                        help="Parameters for the specified classifier. Format: 'key1=value1 key2=value2'")
 
     args = parser.parse_args()
 
@@ -64,6 +76,30 @@ def parse_args():
 
     if args.road_type != "all":
         args.road_type = args.road_type + "_"
+
+    if args.classifier_params != None:
+        print "Classifier Params: " + args.classifier_params
+        args.classifier_params_dict = {}
+
+        key_values = args.classifier_params.split()
+
+        for key_value in key_values:
+            key_str, value_str = key_value.split('=')
+
+            #Try to convert value as appropriate
+            value = value_str
+            try: value = int(value_str)
+            except ValueError:
+                try: value = float(value_str)
+                except ValueError:
+                    pass #Default to string
+
+            args.classifier_params_dict[key_str] = value
+
+
+    else:
+        args.classifier_params_dict = {}
+
 
     return args
 
@@ -82,15 +118,62 @@ def main():
     print "Splitting data into train, test, validation"
     train_validation_data, test_data, train_validation_targets, test_targets = train_test_split(X, y, test_size=0.3, random_state=0)
 
-    #train_data, validation_data, train_targets, validation_targets = train_test_split(train_validation_data, train_validation_targets, test_size=10./70., random_state=0)
-    train_data, train_targets = train_validation_data, train_validation_targets
-    print "  Train %d, Test %d" % (train_data.shape[0], test_data.shape[0])
+    train_data, validation_data, train_targets, validation_targets = train_test_split(train_validation_data, train_validation_targets, test_size=10./70., random_state=0)
+    #train_data, train_targets = train_validation_data, train_validation_targets
+    print "  Train %d, Valid %d, Test %d" % (train_data.shape[0], validation_data.shape[0], test_data.shape[0])
 
+    estimator = None
+    if args.classifier_type == 'kNN':
+        #kNN params: 
+        # n_neighbors=int, number of neighbours to weight over
+        # weights=['uniform', 'distance'], how to weight neighbours: uniform is majority vote
+        # p=int, (What norm are we using, defaults to l2
+        classifier = neighbors.KNeighborsClassifier(n_neighbors=3)
+    elif args.classifier_type == 'DecisionTree':
+        classifier = tree.DecisionTreeClassifier(max_depth=3)
+    elif args.classifier_type == 'EnsembleForest':
+        classifier = ensemble.RandomForestClassifier(n_estimators=10)
+    else:
+        raise ValueError("Unrecognized classifier type: %s" % args.classifier_type)
+
+    #Override default params from commandline
+    classifier.set_params(**args.classifier_params_dict)
+
+    #Train
+    estimator = train_estimator(args, 
+                                classifier, 
+                                train_data, 
+                                train_targets, 
+                                validation_data, 
+                                validation_targets)
+
+    #Predict
+    train_targets_pred, validation_targets_pred, test_targets_pred = pred_estimator(args, 
+                                                                                    estimator, 
+                                                                                    train_data, 
+                                                                                    validation_data, 
+                                                                                    test_data)
+
+    #Eval
+    train_err_frac, validation_err_frac, test_err_frac = eval_pred(args, 
+                                                                    train_targets_pred, 
+                                                                    validation_targets_pred, 
+                                                                    test_targets_pred,
+                                                                    train_targets,
+                                                                    validation_targets,
+                                                                    test_targets)
+    print "Train Error Frac: ", train_err_frac
+    print "Valid Error Frac: ", validation_err_frac
+
+    if args.show_test_error:
+        print "Test Error Frac: " , test_err_frac
+        plot_classification(args, classifier, test_data, test_targets, test_targets_pred)
+    else:
+        plot_classification(args, classifier, validation_data, validation_targets, validation_targets_pred)
+
+def train_estimator(args, classifier, train_data, train_targets, validation_data, validation_targets):
     print "Training Classifier"
     train_start = time()
-    classifier = neighbors.KNeighborsClassifier(n_neighbors=3)
-    #classifier = tree.DecisionTreeClassifier(max_depth=3)
-    #classifier = ensemble.RandomForestClassifier(n_estimators=10)
 
     #50 components covers 95% variation on um
     #50 components covers 76% variation on all
@@ -122,20 +205,31 @@ def main():
 
     print "  Training took %fs" % (time() - train_start)
 
-    #Evaluation
-    print "Evaluating Classifier"
-    eval_start = time()
+    return estimator
+
+def pred_estimator(args, estimator, train_data, validation_data, test_data):
+    print "Predicting Targets"
+    pred_start = time()
+
+    train_targets_pred = estimator.predict(train_data)
+    validation_targets_pred = estimator.predict(validation_data)
     test_targets_pred = estimator.predict(test_data)
+
+    print "  Prediction took %fs" % (time() - pred_start)
+
+    return train_targets_pred, validation_targets_pred, test_targets_pred
+
+def eval_pred(args, train_targets_pred, validation_targets_pred, test_targets_pred, train_targets, validation_targets, test_targets):
+    print "Evaluating Predictions"
+    eval_start = time()
+
+    train_err_frac = np.sum(np.abs(train_targets - train_targets_pred)) / np.prod(train_targets.shape)
+    test_err_frac = np.sum(np.abs(test_targets - test_targets_pred)) / np.prod(test_targets.shape)
+    validation_err_frac = np.sum(np.abs(validation_targets - validation_targets_pred)) / np.prod(validation_targets.shape)
+
     print "  Evaluation took %fs" % (time() - eval_start)
 
-    #Difference of test and actual
-    err_frac = np.sum(np.abs(test_targets - test_targets_pred)) / np.prod(test_targets.shape)
-    print "Error Rate (pixel diff): %f" % err_frac
-
-    #print "Error Rate (cross-val): %f" % cross_val_score(estimator, X, y)
-
-    plot_classification(args, classifier, test_data, test_targets, test_targets_pred)
-    #plot_classification_interactive(args, classifier, test_data, test_targets, test_targets_pred)
+    return train_err_frac, validation_err_frac, test_err_frac
 
 def load_data(args):
     #Collect image paths
