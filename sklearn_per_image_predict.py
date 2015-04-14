@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
 import Image
 
-from sklearn import preprocessing, decomposition
+from sklearn import preprocessing, decomposition, lda
 from sklearn.cross_validation import train_test_split, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.grid_search import GridSearchCV, RandomizedSearchCV, ParameterSampler
@@ -70,6 +70,14 @@ def parse_args():
                         default=None,
                         help="Parameters for the specified classifier. Format: 'key1=value1 key2=value2'")
 
+    parser.add_argument('--dimreducer_type',
+                        choices=['PCA',],
+                        default='PCA',
+                        help="What form of dimension reduction to use. Must be one of %(choices)s. Default: %(default)s")
+    parser.add_argument('--dimreducer_params',
+                        default='n_components=200',
+                        help="Number of components to preserve for PCA or LDA. Default: \"%(default)s\"")
+
     args = parser.parse_args()
 
     assert args.channels == 3
@@ -79,29 +87,32 @@ def parse_args():
 
     if args.classifier_params != None:
         print "Classifier Params: " + args.classifier_params
-        args.classifier_params_dict = {}
-
-        key_values = args.classifier_params.split()
-
-        for key_value in key_values:
-            key_str, value_str = key_value.split('=')
-
-            #Try to convert value as appropriate
-            value = value_str
-            try: value = int(value_str)
-            except ValueError:
-                try: value = float(value_str)
-                except ValueError:
-                    pass #Default to string
-
-            args.classifier_params_dict[key_str] = value
-
-
+        args.classifier_params_dict = str2dict(args.classifier_params)
     else:
         args.classifier_params_dict = {}
 
+    args.dimreducer_params_dict = str2dict(args.dimreducer_params)
 
     return args
+
+def str2dict(input_str):
+    out_dict = {}
+
+    key_values = input_str.split()
+
+    for key_value in key_values:
+        key_str, value_str = key_value.split('=')
+
+        #Try to convert value as appropriate
+        value = value_str
+        try: value = int(value_str)
+        except ValueError:
+            try: value = float(value_str)
+            except ValueError:
+                pass #Default to string
+
+        out_dict[key_str] = value
+    return out_dict
 
 def main():
     args = parse_args()
@@ -136,12 +147,20 @@ def main():
     else:
         raise ValueError("Unrecognized classifier type: %s" % args.classifier_type)
 
+    dimreducer = None
+    if args.dimreducer_type == "PCA":
+        dimreducer = decomposition.PCA()
+    else:
+        raise ValueError("Unrecognized dimension reduction type: %s" % args.dimreducer_type)
+
     #Override default params from commandline
     classifier.set_params(**args.classifier_params_dict)
+    dimreducer.set_params(**args.dimreducer_params_dict)
 
     #Train
     estimator = train_estimator(args, 
                                 classifier, 
+                                dimreducer,
                                 train_data, 
                                 train_targets, 
                                 validation_data, 
@@ -162,16 +181,36 @@ def main():
                                                                     train_targets,
                                                                     validation_targets,
                                                                     test_targets)
-    print "Train Error Frac: ", train_err_frac
-    print "Valid Error Frac: ", validation_err_frac
+    print_error(train_err_frac, "Train")
+
+    print_error(validation_err_frac, "Validation")
+
+    np.save("train_data.npy", train_data)
+    np.save("validation_data.npy", validation_data)
+    np.save("test_data.npy", test_data)
+
+    np.save("train_targets.npy", train_targets)
+    np.save("validation_targets.npy", validation_targets)
+    np.save("test_targets.npy", test_targets)
+
+    np.save("train_pred.npy", train_targets_pred)
+    np.save("validation_pred.npy", validation_targets_pred)
+    np.save("test_pred.npy", test_targets_pred)
 
     if args.show_test_error:
-        print "Test Error Frac: " , test_err_frac
+        print_error(test_err_frac, "Test")
         plot_classification(args, classifier, test_data, test_targets, test_targets_pred)
     else:
         plot_classification(args, classifier, validation_data, validation_targets, validation_targets_pred)
 
-def train_estimator(args, classifier, train_data, train_targets, validation_data, validation_targets):
+def print_error(err_frac, err_type):
+    print err_type + " Mean: ", np.mean(err_frac)
+    print err_type + " Min : ", np.min(err_frac)
+    print err_type + " Max : ", np.max(err_frac)
+    for pctile in [99, 95, 90, 75]: 
+        print err_type + " " + str(pctile) + "th Percentile Error: ", np.percentile(err_frac, q=pctile)
+
+def train_estimator(args, classifier, dimreducer, train_data, train_targets, validation_data, validation_targets):
     print "Training Classifier"
     train_start = time()
 
@@ -187,7 +226,7 @@ def train_estimator(args, classifier, train_data, train_targets, validation_data
     n_components = [20, 40, 1000]
 
     pipe = Pipeline(steps=[
-            ('dimreduction', pca), #First PCA
+            ('dimreduction', dimreducer), #First PCA
             ('classifier', classifier) #Then classify on the reduced dimension problem
         ])
 
@@ -199,8 +238,12 @@ def train_estimator(args, classifier, train_data, train_targets, validation_data
     estimator = pipe
     estimator.fit(train_data, train_targets)
 
-    print "  PCA Explained Variance: ", np.sum(pca.explained_variance_ratio_)
-    #print "  Picked %d components" % (estimator.best_estimator_.named_steps['dimreduction'].n_components)
+    
+
+    if args.dimreducer_type == "PCA":
+        print "  PCA Explained Variance: ", np.sum(dimreducer.explained_variance_ratio_)
+    else:
+        print "  Picked %d components" % (dimreducer.transform(validation_data).shape[1])
 
 
     print "  Training took %fs" % (time() - train_start)
@@ -223,9 +266,13 @@ def eval_pred(args, train_targets_pred, validation_targets_pred, test_targets_pr
     print "Evaluating Predictions"
     eval_start = time()
 
-    train_err_frac = np.sum(np.abs(train_targets - train_targets_pred)) / np.prod(train_targets.shape)
-    test_err_frac = np.sum(np.abs(test_targets - test_targets_pred)) / np.prod(test_targets.shape)
-    validation_err_frac = np.sum(np.abs(validation_targets - validation_targets_pred)) / np.prod(validation_targets.shape)
+    train_err = train_targets_pred - train_targets 
+    validation_err = validation_targets_pred - validation_targets 
+    test_err = test_targets_pred - test_targets 
+
+    train_err_frac = np.sum(np.abs(train_err), 1) / train_err.shape[1]
+    test_err_frac = np.sum(np.abs(test_err), 1) / train_err.shape[1]
+    validation_err_frac = np.sum(np.abs(validation_err), 1) / train_err.shape[1]
 
     print "  Evaluation took %fs" % (time() - eval_start)
 
