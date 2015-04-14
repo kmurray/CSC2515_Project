@@ -64,7 +64,7 @@ def parse_args():
                         help="Show test set image of specified number after running.")
 
     parser.add_argument('--classifier_type',
-                        choices=['kNN', 'DecisionTree', 'EnsembleForest'],
+                        choices=['kNN', 'DecisionTree', 'EnsembleForest', 'ExtraTrees'], #'AdaBoost', 'GradBoost', 
                         help="Classifier type.")
     parser.add_argument('--classifier_params',
                         default=None,
@@ -144,6 +144,17 @@ def main():
         classifier = tree.DecisionTreeClassifier(max_depth=3)
     elif args.classifier_type == 'EnsembleForest':
         classifier = ensemble.RandomForestClassifier(n_estimators=10)
+    #elif args.classifier_type == 'AdaBoost':
+        ##Broken for multi-output
+        #base_classifier = tree.DecisionTreeClassifier(max_depth=10, min_samples_leaf=20) #Seem reasonable based on UMM
+        #classifier = ensemble.AdaBoostClassifier(base_estimator=base_classifier)
+    #elif args.classifier_type == 'GradBoost':
+        ##Broken for multi-output
+        #classifier = ensemble.GradientBoostingClassifier()
+    elif args.classifier_type == 'ExtraTrees':
+        classifier = ensemble.ExtraTreesClassifier()
+    #elif args.classifier_type == 'Bagging':
+        #classifier = ensemble.BaggingClassifier()
     else:
         raise ValueError("Unrecognized classifier type: %s" % args.classifier_type)
 
