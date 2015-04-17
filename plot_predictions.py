@@ -55,6 +55,10 @@ def main():
     t = np.load(args.t)
     y = np.load(args.y)
 
+    print "X:", X.shape
+    print "t:", t.shape
+    print "y:", y.shape
+
     err = np.empty(t.shape)
     err_frac = np.empty(t.shape[0])
     #err = t - y
@@ -109,10 +113,10 @@ def draw_full(args, X, t, y, err, err_frac, idx):
     img_flat = X[idx,:]
     img = img_flat.reshape([args.height,args.width,3])
 
-    gt_flat = t[idx,:]
+    gt_flat = y[idx,:]
     gt = gt_flat.reshape([args.height,args.width])
 
-    pred_flat = y[idx,:]
+    pred_flat = t[idx,:]
     pred = pred_flat.reshape([args.height,args.width])
 
     err_img_flat = err[idx,:]
