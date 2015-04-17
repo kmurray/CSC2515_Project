@@ -63,6 +63,11 @@ def parse_args():
                         type=int,
                         help="Show test set image of specified number after running.")
 
+    parser.add_argument('--plot_eigenroads',
+                        type=int,
+                        metavar="N",
+                        help="Plot the top N eigenroads")
+
     parser.add_argument('--classifier_type',
                         choices=['kNN', 'DecisionTree', 'EnsembleForest', 'ExtraTrees'], #'AdaBoost', 'GradBoost', 
                         help="Classifier type.")
@@ -249,6 +254,9 @@ def train_estimator(args, classifier, dimreducer, train_data, train_targets, val
     estimator = pipe
     estimator.fit(train_data, train_targets)
 
+    if args.plot_eigenroads:
+        plot_eigenroads(args, estimator.steps[0][1]) #Pass fitted PCA object
+
     
 
     if args.dimreducer_type == "PCA":
@@ -356,6 +364,29 @@ def load_data(args):
             break
 
     return X, y
+
+def plot_eigenroads(args, pca):
+    neig_roads = 3
+
+    fig, axarr = plt.subplots(neig_roads, 1)
+    
+    for i in xrange(neig_roads):
+        eigroad_img = pca.components_[i].reshape([args.height,args.width,3])
+
+        #re-normalize
+        eigroad_img_norm = None
+        if eigroad_img.min() < 0:
+            eigroad_img_norm = eigroad_img - eigroad_img.min()
+
+        eigroad_img_norm = eigroad_img_norm / eigroad_img_norm.max()
+
+        axarr[i].set_title("EigenRoad %d. Described Variance %.2f%%" %(i, pca.explained_variance_ratio_[i]*100))
+        axarr[i].imshow(eigroad_img_norm)
+
+    plt.tight_layout()
+    plt.show()
+
+
 
 def plot_classification(args, classifier, test_data, test_targets, predicted_targets):
     if args.show != None:

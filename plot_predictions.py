@@ -113,10 +113,10 @@ def draw_full(args, X, t, y, err, err_frac, idx):
     img_flat = X[idx,:]
     img = img_flat.reshape([args.height,args.width,3])
 
-    gt_flat = y[idx,:]
+    gt_flat = t[idx,:]
     gt = gt_flat.reshape([args.height,args.width])
 
-    pred_flat = t[idx,:]
+    pred_flat = y[idx,:]
     pred = pred_flat.reshape([args.height,args.width])
 
     err_img_flat = err[idx,:]
