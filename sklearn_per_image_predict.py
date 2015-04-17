@@ -55,7 +55,7 @@ def parse_args():
                         help="Number of colour channels. Default %(default)s")
 
     parser.add_argument('--show_test_error',
-                        default=False,
+                        default=True,
                         action='store_true',
                         help="Show the test set error")
 
